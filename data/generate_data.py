@@ -1,5 +1,6 @@
 import abc
 import logging
+import random
 import sys
 import os
 from dataclasses import dataclass
@@ -7,12 +8,18 @@ from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
+import openfoodfacts
 import requests
 
 
+# Inspired by schema.org
 @dataclass
-class Person:
+class Thing:
     id: str
+
+
+@dataclass
+class Person(Thing):
     title: str
     first_name: str
     last_name: str
@@ -21,16 +28,14 @@ class Person:
 
 
 @dataclass
-class Transaction:
-    id: str
+class Transaction(Thing):
     person_id: str
     item_id: str
 
 
 @dataclass
-class Item:
-    id: str
-    price: str
+class Item(Thing):
+    price: float
     category: str
 
 
@@ -54,56 +59,116 @@ class PersonCSVFormatter(CSVFormatter):
         return "ID,TITLE,FIRST_NAME,LAST_NAME,AGE,GENDER\n"
 
 
-class Writer(abc.ABC):
-    def __init__(self, logger: logging.Logger):
-        self._logger = logger
+class ItemCSVFormatter(CSVFormatter):
+    def format(self, item: Item) -> str:
+        return f"{item.id},{item.price},{item.category}\n"
 
-    @abc.abstractmethod
-    def write(
+    def get_header(self) -> str:
+        return "ID,PRICE,CATEGORY\n"
+
+
+class TransactionCSVFormatter(CSVFormatter):
+    def format(self, transaction: Transaction) -> str:
+        return f"{transaction.id},{transaction.person_id},{transaction.item_id}\n"
+
+    def get_header(self) -> str:
+        return "ID,PERSON_ID,ITEM_ID\n"
+
+
+class FileWriter(abc.ABC):
+    def __init__(
         self,
-        generator: Generator[object, None, None],
+        logger: logging.Logger,
         formatter: Formatter,
-        records_per_file: int,
+        max_records_per_file: int,
         output_path: str,
     ):
+        self._logger = logger
+        self._formatter = formatter
+        self._max_records_per_file = max_records_per_file
+        self._output_path = output_path
+        # counter used for knowing when to write out to file
+        self._records_in_file = 0
+
+    @abc.abstractmethod
+    def write(self, thing: Thing):
         pass
 
 
-class CSVWriter(Writer):
-    def write(
+class CSVFileWriter(FileWriter):
+    def __init__(
         self,
-        generator: Generator[object, None, None],
+        logger: logging.Logger,
         formatter: CSVFormatter,
         records_per_file: int,
         output_path: str,
     ):
-        csv = formatter.get_header()
-        record_counter = 0
-        for item in generator:
-            csv += formatter.format(item)
-            record_counter += 1
-            if record_counter == records_per_file:
-                self._write_file(csv, output_path)
-        self._write_file(csv, output_path)
+        super().__init__(logger, formatter, records_per_file, output_path)
+        #  No functional benefit to this, just adds the CSVFormatter type hint
+        self._formatter = formatter
+        self._csv = ""
 
-    def _write_file(self, csv: str, output_path: str):
-        full_file_path = os.path.join(output_path, f"{uuid4()}.csv")
+    def write(self, thing: Thing):
+        if self._records_in_file == 0:
+            self._csv = self._formatter.get_header()
+        self._csv += self._formatter.format(thing)
+        self._records_in_file += 1
+        if self._records_in_file == self._max_records_per_file:
+            self._write_file()
+            self._records_in_file = 0
+
+    def _write_file(self):
+        full_file_path = os.path.join(self._output_path, f"{uuid4()}.csv")
         self._logger.info(f"Saving results to file: {full_file_path}")
-        Path(output_path).mkdir(parents=True, exist_ok=True)
+        Path(self._output_path).mkdir(parents=True, exist_ok=True)
         with open(full_file_path, "w+") as f:
-            f.write(csv)
+            f.write(self._csv)
+            self._csv = ""
+
+    def __del__(self):
+        if self._csv:
+            self._write_file()
+
+
+class EmptyCacheError(Exception):
+    pass
+
+
+class ThingGeneratingWritingRepository:
+    def __init__(
+        self,
+        generator: Generator[Thing, None, None],
+        writer: FileWriter,
+        logger: logging.Logger,
+    ):
+        self._logger = logger
+        self._generator = generator
+        self._writer = writer
+        self._thing_id_cache = []
+
+    def get_random_new_thing_id(self) -> str:
+        # TODO handle StopIteration
+        thing = next(self._generator)
+        self._write(thing)
+        self._thing_id_cache.append(thing.id)
+        return thing.id
+
+    def get_random_existing_thing_id(self) -> str:
+        try:
+            return random.choice(self._thing_id_cache)
+        except IndexError:
+            raise EmptyCacheError()
+
+    def _write(self, thing: Thing):
+        self._writer.write(thing)
 
 
 def person_generator(
-    size: int, logger: logging.Logger, batch_size: int
+    logger: logging.Logger, batch_size: int
 ) -> Generator[Person, None, None]:
-    yielded = 0
-    while yielded < size:
-        current_batch_size = (
-            batch_size if yielded + batch_size <= size else size - yielded
-        )
-        logger.info(f"Getting batch of {current_batch_size} from randomuser api")
-        query_string = {"results": current_batch_size, "nat": "gb"}
+    while True:
+        logger.info(f"Getting batch of {batch_size} from randomuser api")
+        query_string = {"results": batch_size, "nat": "gb"}
         response = requests.get("https://randomuser.me/api/", params=query_string)
         # I have open a PR (https://github.com/RandomAPI/Randomuser.me-Node/pull/177)
         # for having the correct response code for rate limit exceeded
@@ -134,23 +199,97 @@ def person_generator(
                 age=r["dob"]["age"],
                 gender=r["gender"],
             )
-            yielded += 1
 
 
-def create_data_set(
-    size: int,
-    logger: logging.Logger,
-    writer: Writer,
-    output_path: str,
-    api_batch_size: int,
-    write_batch_size: int,
-):
-    writer.write(
-        person_generator(size, logger, api_batch_size),
-        PersonCSVFormatter(),
-        write_batch_size,
-        str(os.path.join(output_path, "person")),
-    )
+def item_generator(logger: logging.Logger) -> Generator[Item, None, None]:
+    for product in openfoodfacts.products.get_by_facets(
+        {"country": "united kingdom", "category": "groceries"}
+    ):
+        # TODO check that this is iterating through all, not just single page
+        # TODO more than just groceries category?? (would neeed to check not already returned)
+        logger.debug(f"Item:\n{product}")
+        yield Item(
+            id=product["id"],
+            # I don't want to deal with multiple categories
+            category=product["categories"].split(",")[0],
+            price=1.00,
+        )
+
+
+class DataSetBuilder:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        write_batch_size: int,
+        output_path: str,
+        randomuser_api_batch_size: int,
+    ):
+        self._logger = logger
+        self._write_batch_size = write_batch_size
+        self._output_path = output_path
+        self._randomuser_api_batch_size = randomuser_api_batch_size
+        self._person_repository = self._get_person_repository()
+        self._item_repository = self._get_item_repository()
+        self._transaction_writer = self._get_transaction_writer()
+
+    def build(self, size: int):
+        for i in range(size):
+            person_id = self._get_person_id()
+            item_id = self._get_item_id()
+            transaction = Transaction(
+                id=str(uuid4()), person_id=person_id, item_id=item_id
+            )
+            self._transaction_writer.write(transaction)
+
+    def _get_person_id(self) -> str:
+        x = random.randint(0, 4)
+        if x <= 3:
+            try:
+                return self._person_repository.get_random_existing_thing_id()
+            except EmptyCacheError:
+                pass
+        return self._person_repository.get_random_new_thing_id()
+
+    def _get_item_id(self) -> str:
+        x = random.randint(0, 10)
+        if x <= 8:
+            try:
+                return self._item_repository.get_random_existing_thing_id()
+            except EmptyCacheError:
+                pass
+        return self._item_repository.get_random_new_thing_id()
+
+    def _get_person_repository(self):
+        return ThingGeneratingWritingRepository(
+            person_generator(self._logger, self._randomuser_api_batch_size),
+            CSVFileWriter(
+                self._logger,
+                PersonCSVFormatter(),
+                self._write_batch_size,
+                os.path.join(self._output_path, "person"),
+            ),
+            self._logger,
+        )
+
+    def _get_item_repository(self):
+        return ThingGeneratingWritingRepository(
+            item_generator(self._logger),
+            CSVFileWriter(
+                self._logger,
+                ItemCSVFormatter(),
+                self._write_batch_size,
+                os.path.join(self._output_path, "item"),
+            ),
+            self._logger,
+        )
+
+    def _get_transaction_writer(self):
+        return CSVFileWriter(
+            self._logger,
+            TransactionCSVFormatter(),
+            self._write_batch_size,
+            os.path.join(self._output_path, "transaction"),
+        )
 
 
 if __name__ == "__main__":
@@ -158,20 +297,15 @@ if __name__ == "__main__":
     RANDOMUSER_API_BATCH_SIZE = 100
     WRITE_BATCH_SIZE = 50000
 
-    num_people = int(sys.argv[1])
+    num_transactions = int(sys.argv[1])
     if len(sys.argv) > 2:
         log_level = sys.argv[2]
     else:
         log_level = "INFO"
     logging.basicConfig()
-    logger = logging.getLogger(__file__)
-    logger.setLevel(log_level)
+    logger_ = logging.getLogger(__file__)
+    logger_.setLevel(log_level)
 
-    create_data_set(
-        num_people,
-        logger,
-        CSVWriter(logger),
-        "raw_data",
-        RANDOMUSER_API_BATCH_SIZE,
-        WRITE_BATCH_SIZE,
-    )
+    DataSetBuilder(
+        logger_, WRITE_BATCH_SIZE, "raw_data", RANDOMUSER_API_BATCH_SIZE
+    ).build(num_transactions)
