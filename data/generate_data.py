@@ -1,133 +1,20 @@
-import abc
 import logging
 import random
 import sys
 import os
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Generator
 from uuid import uuid4
 
 import openfoodfacts
 import requests
 
-
-# Inspired by schema.org
-@dataclass
-class Thing:
-    id: str
-
-
-@dataclass
-class Person(Thing):
-    title: str
-    first_name: str
-    last_name: str
-    age: int
-    gender: str
-
-
-@dataclass
-class Transaction(Thing):
-    person_id: str
-    item_id: str
-
-
-@dataclass
-class Item(Thing):
-    price: float
-    category: str
-
-
-class Formatter(abc.ABC):
-    @abc.abstractmethod
-    def format(self, thing: object):
-        pass
-
-
-class CSVFormatter(Formatter):
-    @abc.abstractmethod
-    def get_header(self) -> str:
-        pass
-
-
-class PersonCSVFormatter(CSVFormatter):
-    def format(self, person: Person) -> str:
-        return f"{person.id},{person.title},{person.first_name},{person.last_name},{person.age},{person.gender}\n"
-
-    def get_header(self) -> str:
-        return "ID,TITLE,FIRST_NAME,LAST_NAME,AGE,GENDER\n"
-
-
-class ItemCSVFormatter(CSVFormatter):
-    def format(self, item: Item) -> str:
-        return f"{item.id},{item.price},{item.category}\n"
-
-    def get_header(self) -> str:
-        return "ID,PRICE,CATEGORY\n"
-
-
-class TransactionCSVFormatter(CSVFormatter):
-    def format(self, transaction: Transaction) -> str:
-        return f"{transaction.id},{transaction.person_id},{transaction.item_id}\n"
-
-    def get_header(self) -> str:
-        return "ID,PERSON_ID,ITEM_ID\n"
-
-
-class FileWriter(abc.ABC):
-    def __init__(
-        self,
-        logger: logging.Logger,
-        formatter: Formatter,
-        max_records_per_file: int,
-        output_path: str,
-    ):
-        self._logger = logger
-        self._formatter = formatter
-        self._max_records_per_file = max_records_per_file
-        self._output_path = output_path
-        # counter used for knowing when to write out to file
-        self._records_in_file = 0
-
-    @abc.abstractmethod
-    def write(self, thing: Thing):
-        pass
-
-
-class CSVFileWriter(FileWriter):
-    def __init__(
-        self,
-        logger: logging.Logger,
-        formatter: CSVFormatter,
-        records_per_file: int,
-        output_path: str,
-    ):
-        super().__init__(logger, formatter, records_per_file, output_path)
-        #  No functional benefit to this, just adds the CSVFormatter type hint
-        self._formatter = formatter
-        self._csv = ""
-
-    def write(self, thing: Thing):
-        if self._records_in_file == 0:
-            self._csv = self._formatter.get_header()
-        self._csv += self._formatter.format(thing)
-        self._records_in_file += 1
-        if self._records_in_file == self._max_records_per_file:
-            self._write_file()
-            self._records_in_file = 0
-
-    def _write_file(self):
-        full_file_path = os.path.join(self._output_path, f"{uuid4()}.csv")
-        self._logger.info(f"Saving results to file: {full_file_path}")
-        Path(self._output_path).mkdir(parents=True, exist_ok=True)
-        with open(full_file_path, "w+") as f:
-            f.write(self._csv)
-            self._csv = ""
-
-    def __del__(self):
-        if self._csv:
-            self._write_file()
+from data.formatter import (
+    ItemCSVFormatter,
+    PersonCSVFormatter,
+    TransactionCSVFormatter,
+)
+from data.model import Item, Person, Thing, Transaction
+from data.writer import CSVFileWriter, FileWriter
 
 
 class EmptyCacheError(Exception):
