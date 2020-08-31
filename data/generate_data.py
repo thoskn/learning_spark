@@ -152,7 +152,7 @@ class DataSetBuilder:
         return self._person_repository.get_random_new_thing_id()
 
     def _get_item_id(self) -> str:
-        x = random.randint(0, 10)
+        x = random.randint(0, 9)
         if x <= 8:
             try:
                 return self._item_repository.get_random_existing_thing_id()
@@ -204,15 +204,17 @@ if __name__ == "__main__":
     RANDOMUSER_API_BATCH_SIZE = 100
     WRITE_BATCH_SIZE = 50000
 
-    num_transactions = int(sys.argv[1])
-    if len(sys.argv) > 2:
-        log_level = sys.argv[2]
+    if len(sys.argv) > 3:
+        log_level = sys.argv[3]
     else:
         log_level = "INFO"
     logging.basicConfig()
     logger_ = logging.getLogger(__file__)
     logger_.setLevel(log_level)
 
+    num_transactions = int(sys.argv[1])
+    output_path = sys.argv[2]
+
     DataSetBuilder(
-        logger_, WRITE_BATCH_SIZE, "raw_data", RANDOMUSER_API_BATCH_SIZE
+        logger_, WRITE_BATCH_SIZE, output_path, RANDOMUSER_API_BATCH_SIZE
     ).build(num_transactions)

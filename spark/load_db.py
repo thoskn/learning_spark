@@ -1,10 +1,22 @@
+import glob
 import os
+import sys
 
-from pyspark.sql import DataFrame
-from pyspark.sql.functions import col, split
+from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.functions import split
 
 from database import csv, jdbc
 from utils import session_builder
+
+
+def get_df_from_csv_directory(spark_session: SparkSession, directory: str) -> DataFrame:
+    files = glob.glob(os.path.join(directory, "*.csv"))
+    for idx, f in enumerate(files):
+        if idx == 0:
+            df = csv.extract(spark_session, f)
+        else:
+            df = df.union(csv.extract(spark_session, f))
+    return df
 
 
 def transform(df: DataFrame) -> DataFrame:
@@ -23,9 +35,11 @@ if __name__ == "__main__":
 
     POSTGRES_URL = f"jdbc:postgresql://localhost:5432/{DATABASE_NAME}?user={POSTGRES_USER}&password={POSTGRES_PASSWORD}"
 
+    data_directory = sys.argv[1]
+
     spark = session_builder(POSTGRS_DRIVER_JAR_PATH).getOrCreate()
 
-    people_df = csv.extract(spark, "data/people.csv")
+    people_df = get_df_from_csv_directory(spark, os.path.join(data_directory, "person"))
     people_df.show()
 
     people_df = transform(people_df)

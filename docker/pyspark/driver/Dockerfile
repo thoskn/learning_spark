@@ -33,4 +33,5 @@ ENV POSTGRES_PASSWORD "pword"
 EXPOSE 4040
 # TODO get Web UI working
 
-CMD python3.7 spark/load_db.py
+CMD python3.7 data/generate_data.py 3000 raw_data && \
+    python3.7 spark/load_db.py raw_data raw_data

@@ -17,10 +17,10 @@ class CSVFormatter(Formatter):
 
 class PersonCSVFormatter(CSVFormatter):
     def format(self, person: Person) -> str:
-        return f"{person.id},{person.title},{person.first_name},{person.last_name},{person.age},{person.gender}\n"
+        return f"{person.id},{person.title},{person.first_name} {person.last_name},{person.age},{person.gender}\n"
 
     def get_header(self) -> str:
-        return "ID,TITLE,FIRST_NAME,LAST_NAME,AGE,GENDER\n"
+        return "ID,TITLE,NAME,AGE,GENDER\n"
 
 
 class ItemCSVFormatter(CSVFormatter):
