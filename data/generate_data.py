@@ -134,6 +134,10 @@ class EmptyCacheError(Exception):
     pass
 
 
+class ExhaustedError(Exception):
+    pass
+
+
 class ThingGeneratingWritingRepository:
     def __init__(
         self,
@@ -147,8 +151,10 @@ class ThingGeneratingWritingRepository:
         self._thing_id_cache = []
 
     def get_random_new_thing_id(self) -> str:
-        # TODO handle StopIteration
-        thing = next(self._generator)
+        try:
+            thing = next(self._generator)
+        except StopIteration:
+            raise ExhaustedError("No new things available")
         self._write(thing)
         self._thing_id_cache.append(thing.id)
         return thing.id
@@ -206,7 +212,7 @@ def item_generator(logger: logging.Logger) -> Generator[Item, None, None]:
         {"country": "united kingdom", "category": "groceries"}
     ):
         # TODO check that this is iterating through all, not just single page
-        # TODO more than just groceries category?? (would neeed to check not already returned)
+        # TODO more than just groceries category?? (would need to check not already returned)
         logger.debug(f"Item:\n{product}")
         yield Item(
             id=product["id"],
@@ -214,6 +220,14 @@ def item_generator(logger: logging.Logger) -> Generator[Item, None, None]:
             category=product["categories"].split(",")[0],
             price=1.00,
         )
+
+
+class BlockMessageFilterer:
+    def __init__(self, msg_to_block: str):
+        self._msg_to_block = msg_to_block
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.msg != self._msg_to_block
 
 
 class DataSetBuilder:
@@ -257,7 +271,13 @@ class DataSetBuilder:
                 return self._item_repository.get_random_existing_thing_id()
             except EmptyCacheError:
                 pass
-        return self._item_repository.get_random_new_thing_id()
+        try:
+            return self._item_repository.get_random_new_thing_id()
+        except ExhaustedError:
+            msg = "No new items available, getting random existing item"
+            self._logger.info(msg)
+            self._logger.addFilter(BlockMessageFilterer(msg))
+            return self._item_repository.get_random_existing_thing_id()
 
     def _get_person_repository(self):
         return ThingGeneratingWritingRepository(
