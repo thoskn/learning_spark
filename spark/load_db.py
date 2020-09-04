@@ -1,28 +1,19 @@
-import glob
 import os
 import sys
 
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import DataFrame
 from pyspark.sql.functions import split
 
 from database import csv, jdbc
 from utils import session_builder
 
 
-def get_df_from_csv_directory(spark_session: SparkSession, directory: str) -> DataFrame:
-    files = glob.glob(os.path.join(directory, "*.csv"))
-    for idx, f in enumerate(files):
-        if idx == 0:
-            df = csv.extract(spark_session, f)
-        else:
-            df = df.union(csv.extract(spark_session, f))
-    return df
-
-
 def transform(df: DataFrame) -> DataFrame:
     # Assumes only ever two names
-    return df.withColumn("first_name", split("name", " ").getItem(0)).withColumn(
-        "last_name", split("name", " ").getItem(1)
+    return (
+        df.withColumn("first_name", split("name", " ").getItem(0))
+        .withColumn("last_name", split("name", " ").getItem(1))
+        .withColumn("AGE", df["AGE"].cast("INT"))
     )
 
 
@@ -39,10 +30,15 @@ if __name__ == "__main__":
 
     spark = session_builder(POSTGRS_DRIVER_JAR_PATH).getOrCreate()
 
-    people_df = get_df_from_csv_directory(spark, os.path.join(data_directory, "person"))
+    people_df = csv.get_df_from_csv_directory(
+        spark, os.path.join(data_directory, "person")
+    )
     people_df.show()
 
     people_df = transform(people_df)
     people_df.show()
+    print(people_df.schema)
 
     jdbc.load(people_df, POSTGRES_URL, "people", POSTGRES_DRIVER_CLASS)
+
+    # TODO load items and transactions
