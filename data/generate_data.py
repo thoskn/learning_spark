@@ -95,10 +95,9 @@ def person_generator(
 
 
 def item_generator(logger: logging.Logger) -> Generator[Item, None, None]:
-    for product in openfoodfacts.products.get_by_facets(
+    for product in openfoodfacts.products.get_all_by_facets(
         {"country": "united kingdom", "category": "groceries"}
     ):
-        # TODO check that this is iterating through all, not just single page
         # TODO more than just groceries category?? (would need to check not already returned)
         logger.debug(f"Item:\n{product}")
         yield Item(
