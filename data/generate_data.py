@@ -200,7 +200,7 @@ class DataSetBuilder:
 
 if __name__ == "__main__":
     # API limit seems to be 20000 per minute
-    RANDOMUSER_API_BATCH_SIZE = 100
+    RANDOMUSER_API_BATCH_SIZE = 50
     WRITE_BATCH_SIZE = 50000
 
     if len(sys.argv) > 3:

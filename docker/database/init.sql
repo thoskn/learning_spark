@@ -1,0 +1,3 @@
+CREATE USER pyspark WITH PASSWORD 'abc';
+CREATE DATABASE spark_stuff;
+GRANT ALL PRIVILEGES ON DATABASE spark_stuff TO pyspark;

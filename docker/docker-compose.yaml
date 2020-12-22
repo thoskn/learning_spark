@@ -1,0 +1,22 @@
+version: '3'
+services:
+  database:
+    build:
+      context: ../
+      dockerfile: docker/database/Dockerfile
+    ports:
+      - 5432:5432
+    environment:
+      # yep, shouldn't put password here
+      - POSTGRES_PASSWORD=pword
+  cache:
+    image: redis:6-alpine
+    ports:
+      - 6379:6379
+  pysparkdriver:
+    build:
+      context: ../
+      dockerfile: docker/pyspark/driver/Dockerfile
+    environment:
+      - POSTGRES_HOST=database
+      - REDIS_HOST=cache

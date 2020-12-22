@@ -1,4 +1,3 @@
-import logging
 import os
 import sys
 import time
@@ -7,6 +6,7 @@ from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import split
 
 from database import csv, jdbc
+from database.jdbc import build_postgres_url
 from utils import session_builder
 
 
@@ -73,17 +73,18 @@ def load_transactions(
 
 
 if __name__ == "__main__":
+    POSTGRES_HOST = os.environ["POSTGRES_HOST"]
     DATABASE_NAME = os.environ["DATABASE_NAME"]
     POSTGRES_PASSWORD = os.environ["POSTGRES_PASSWORD"]
     POSTGRES_USER = os.environ["POSTGRES_USER"]
     POSTGRS_DRIVER_JAR_PATH = os.environ["POSTGRS_DRIVER_JAR_PATH"]
     POSTGRES_DRIVER_CLASS = os.environ["POSTGRES_DRIVER_CLASS"]
 
-    POSTGRES_URL = f"jdbc:postgresql://localhost:5432/{DATABASE_NAME}?user={POSTGRES_USER}&password={POSTGRES_PASSWORD}"
+    POSTGRES_URL = build_postgres_url(
+        POSTGRES_HOST, DATABASE_NAME, POSTGRES_USER, POSTGRES_PASSWORD
+    )
 
     data_directory = sys.argv[1]
-
-    logger = logging.getLogger(__name__)
 
     spark = session_builder(POSTGRS_DRIVER_JAR_PATH).getOrCreate()
     t0 = time.time()
@@ -91,4 +92,4 @@ if __name__ == "__main__":
     load_items(spark, data_directory, POSTGRES_URL, POSTGRES_DRIVER_CLASS)
     load_transactions(spark, data_directory, POSTGRES_URL, POSTGRES_DRIVER_CLASS)
     load_time = time.time() - t0
-    logger.info(f"Loaded in {load_time} seconds")
+    print(f"Loaded in {load_time} seconds")

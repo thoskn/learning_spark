@@ -18,6 +18,7 @@ class Person(Thing):
 
 @dataclass
 class Transaction(Thing):
+    #     TODO add datetime
     person_id: str
     item_id: str
 

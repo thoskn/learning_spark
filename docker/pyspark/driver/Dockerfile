@@ -25,13 +25,15 @@ COPY data data
 
 COPY spark spark
 
-ENV DATABASE_NAME="spark_stuff" POSTGRES_USER="postgres" POSTGRS_DRIVER_JAR_PATH="spark_dependencies/postgresql-42.2.16.jar" POSTGRES_DRIVER_CLASS="org.postgresql.Driver"
+ENV DATABASE_NAME="spark_stuff" POSTGRES_USER="pyspark" POSTGRS_DRIVER_JAR_PATH="spark_dependencies/postgresql-42.2.16.jar" POSTGRES_DRIVER_CLASS="org.postgresql.Driver"
 # yes, shouldn't be here
-ENV POSTGRES_PASSWORD "pword"
+ENV POSTGRES_PASSWORD "abc"
 
 # Spark Web UI
 EXPOSE 4040
 # TODO get Web UI working
 
 CMD python3.7 data/generate_data.py 3000 raw_data && \
-    python3.7 spark/load_db.py raw_data raw_data
+    python3.7 spark/load_db.py raw_data
+#     && \
+#    python3.7 spark/aggregate.py
